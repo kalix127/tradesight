@@ -17,6 +17,7 @@
 ## 📚 Table of Contents
 
 - [🚀 Overview](#-overview)
+- [💻 Platform Support](#-platform-support)
 - [⚠️ Disclaimers](#️-disclaimers)
 - [🧰 Requirements](#-requirements)
 - [🛠️ Installation](#️-installation)
@@ -24,7 +25,6 @@
 - [▶️ Usage](#️-usage)
 - [🤖 Recommended Models](#-recommended-models)
 - [📤 Output](#-output)
-- [💻 Platform Support](#-platform-support)
 - [🛠️ Troubleshooting](#-troubleshooting)
 - [📌 Notes & Limitations](#-notes--limitations)
 - [📄 License](#-license)
