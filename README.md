@@ -43,11 +43,11 @@
 
 ## 🧰 Requirements
 
-- Use Python 3.10+
-- Run Ollama locally and pull a compatible vision model.
-- Poppler tools (needed by `pdf2image`).
+1. Install Python 3.10+ from [python.org](https://www.python.org/downloads/windows/)
+2. Install Git from [git-scm.com](https://git-scm.com/download/win)
+3. Install Ollama from [ollama.com](https://ollama.com/download/windows)
 
-## 🛠️ Installation (Unix)
+## 🛠️ Installation (Unix/macOS)
 
 ```bash
 git clone https://github.com/kalix127/tradesight.git
@@ -57,12 +57,66 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Installing Poppler
+
+Poppler is required for PDF processing. Check if you have it installed by calling `pdftoppm -h` in your terminal.
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install poppler-utils
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S poppler
+```
+
+**macOS:**
+```bash
+brew install poppler
+```
+
 Run setup to choose/pull a model and create `settings.json` (optional but recommended):
 ```bash
 python3 setup.py
 ```
 
 Ensure Ollama is running:
+```bash
+ollama serve
+```
+
+## 🛠️ Installation (Windows)
+
+### Installation Steps
+```bash
+git clone https://github.com/kalix127/tradesight.git
+cd tradesight
+python -m venv venv
+.\venv\Scripts\activate.bat
+python -m pip install -r .\requirements.txt
+```
+
+### Installing Poppler
+
+Poppler is required for PDF processing.
+
+**Windows:**
+1. Download the latest poppler package from [@oschwartz10612](https://github.com/oschwartz10612/poppler-windows/releases/) version which is the most up-to-date
+2. Move the extracted directory to the desired place on your system
+3. Add the `bin/` directory to your PATH
+4. Test that all went well by opening cmd and making sure that you can call `pdftoppm -h`
+
+### Setup Configuration
+Run the setup wizard to configure and pull a model:
+```bash
+python setup.py
+```
+
+The setup will automatically detect Ollama installation on Windows, even if it's not in your PATH.
+
+### Start Ollama
+Ensure Ollama is running before processing PDFs:
 ```bash
 ollama serve
 ```
@@ -129,13 +183,13 @@ You can override the model/URL at runtime: `python3 main.py --model <name> --oll
   | --- | --- | --- |
   | Linux | Supported / tested | Primary development platform |
   | macOS (Apple Silicon) | Not yet tested | Planned |
-  | Windows | Not yet tested | Planned |
+  | Windows | Supported | - |
 
 - Model coverage by OS
   | Model \| OS | Linux | macOS (Apple Silicon) | Windows |
   | --- | --- | --- | --- |
-  | ministral-3:8b | ✅  | Planned | Planned |
-  | qwen2.5vl:3b | ⚠️ Works but noticeably inaccurate | Planned | Planned |
+  | ministral-3:8b | ✅  | Planned | ✅ |
+  | qwen2.5vl:3b | ⚠️ Works but noticeably inaccurate | Planned | ⚠️ Works but noticeably inaccurate |
 
 ## 🛠️ Troubleshooting
 

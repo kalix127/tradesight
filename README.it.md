@@ -43,11 +43,12 @@
 
 ## 🧰 Requisiti
 
-- Usa Python 3.10+
-- Esegui Ollama in locale e scarica un modello visivo compatibile.
-- Poppler tools (necessario per `pdf2image`).
+1. Install Python 3.10+ from [python.org](https://www.python.org/downloads/windows/)
+2. Install Git from [git-scm.com](https://git-scm.com/download/win)
+3. Install Ollama from [ollama.com](https://ollama.com/download/windows)
+4. Install Poppler (see OS-specific instructions below)
 
-## 🛠️ Installazione (Unix)
+## 🛠️ Installazione (Unix/macOS)
 
 ```bash
 git clone https://github.com/kalix127/tradesight.git
@@ -57,12 +58,66 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Installazione di Poppler
+
+Poppler è richiesto per l'elaborazione PDF. Verifica di averlo installato chiamando `pdftoppm -h` nel tuo terminale.
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install poppler-utils
+```
+
+**Arch Linux:**
+```bash
+sudo pacman -S poppler
+```
+
+**macOS:**
+```bash
+brew install poppler
+```
+
 Esegui il setup per scegliere/scaricare un modello e creare `settings.json` (opzionale ma consigliato):
 ```bash
 python3 setup.py
 ```
 
 Assicurati che Ollama sia attivo:
+```bash
+ollama serve
+```
+
+## 🛠️ Installazione (Windows)
+
+### Passaggi di installazione
+```bash
+git clone https://github.com/kalix127/tradesight.git
+cd tradesight
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Installazione di Poppler
+
+Poppler è richiesto per l'elaborazione PDF.
+
+**Windows:**
+1. Scarica l'ultimo pacchetto poppler da [@oschwartz10612](https://github.com/oschwartz10612/poppler-windows/releases/) che è la più aggiornata
+2. Sposta la directory estratta nella posizione desiderata sul tuo sistema
+3. Aggiungi la directory `bin/` al tuo PATH
+4. Testa che tutto sia andato bene aprendo cmd e assicurandoti di poter chiamare `pdftoppm -h`
+
+### Configurazione setup
+Esegui il wizard di setup per configurare e scaricare un modello:
+```bash
+python setup.py
+```
+
+Il setup rileverà automaticamente l'installazione di Ollama su Windows, anche se non è nel PATH.
+
+### Avvia Ollama
+Assicurati che Ollama sia in esecuzione prima di processare i PDF:
 ```bash
 ollama serve
 ```
@@ -124,18 +179,18 @@ Puoi sovrascrivere modello/URL a runtime: `python3 main.py --model <nome> --olla
 
 ## ✅ Test
 
-- Copertura OS  
+- Copertura OS
   | OS | Stato | Note |
   | --- | --- | --- |
   | Linux | Supportato / testato | Piattaforma principale di sviluppo |
   | macOS (Apple Silicon) | Non ancora testato | In programma |
-  | Windows | Non ancora testato | In programma |
+  | Windows | Supportato | - |
 
-- Copertura modelli per OS  
+- Copertura modelli per OS
   | Modello \\ OS | Linux | macOS (Apple Silicon) | Windows |
   | --- | --- | --- | --- |
-  | ministral-3:8b | ✅ | Pianificato | Pianificato |
-  | qwen2.5vl:3b | ⚠️ Funziona ma poco accurato | Pianificato | Pianificato |
+  | ministral-3:8b | ✅ | Pianificato | ✅ |
+  | qwen2.5vl:3b | ⚠️ Funziona ma poco accurato | Pianificato | ✅ |
 
 ## 🛠️ Troubleshooting
 

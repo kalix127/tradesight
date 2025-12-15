@@ -4,6 +4,7 @@ import json
 import platform
 import shutil
 import time
+import os
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
@@ -23,9 +24,37 @@ from const import (
 
 console = Console()
 
+def get_ollama_executable():
+    """Get the Ollama executable path, works on all platforms."""
+    # Check if ollama is in PATH first
+    ollama_path = shutil.which('ollama')
+    if ollama_path:
+        return ollama_path
+
+    # On Windows, check common installation paths
+    if platform.system() == "Windows":
+        common_paths = [
+            os.path.expandvars(r"%ProgramFiles%\Ollama\ollama.exe"),
+            os.path.expandvars(r"%LocalAppData%\Programs\Ollama\ollama.exe"),
+            os.path.expandvars(r"%AppData%\Ollama\ollama.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Ollama\ollama.exe"),
+        ]
+
+        for path in common_paths:
+            if os.path.exists(path):
+                return path
+
+    # Return None if not found
+    return None
+
 def check_ollama_installation():
+    ollama_path = get_ollama_executable()
+    if not ollama_path:
+        console.print("[red]Ollama not found[/red]")
+        return False
+
     try:
-        result = subprocess.run(['ollama', '--version'], capture_output=True, text=True, timeout=5)
+        result = subprocess.run([ollama_path, '--version'], capture_output=True, text=True, timeout=5)
         version = result.stdout.strip()
         console.print(f"[green]Ollama installed: {version}[/green]")
         return True
@@ -39,6 +68,26 @@ def check_curl():
 def install_ollama():
     console.print("[info]Installing Ollama...[/info]")
 
+    if platform.system() == "Windows":
+        console.print("[yellow]Windows detected. To install Ollama on Windows:[/yellow]")
+        console.print("\n1. Download Ollama from: [blue]https://ollama.com/download/windows[/blue]")
+        console.print("2. Run the installer")
+        console.print("3. After installation, the setup will automatically detect Ollama\n")
+
+        # Check if Ollama is already installed
+        ollama_path = get_ollama_executable()
+        if ollama_path:
+            console.print(f"[green]Ollama is already installed at: {ollama_path}[/green]")
+            if not shutil.which('ollama'):
+                console.print("[yellow]Note: Ollama is not in your PATH. You can still use Tradesight.[/yellow]")
+            return True
+
+        if Confirm.ask("Open Ollama download page in browser?"):
+            import webbrowser
+            webbrowser.open("https://ollama.com/download/windows")
+
+        return False
+
     if not check_curl():
         console.print("[red]curl is required to install Ollama. Please install curl first.[/red]")
         console.print("[yellow]On Ubuntu/Debian: sudo apt-get install curl[/yellow]")
@@ -48,33 +97,33 @@ def install_ollama():
     install_script = "curl -fsSL https://ollama.com/install.sh | sh"
 
     try:
-        if platform.system() == "Windows":
-            console.print("[yellow]Windows detected. Please download Ollama from https://ollama.com/download[/yellow]")
-            return False
-        else:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                console=console
-            ) as progress:
-                progress.add_task("Installing Ollama...", total=None)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            progress.add_task("Installing Ollama...", total=None)
 
-                subprocess.run(
-                    install_script,
-                    shell=True,
-                    check=True,
-                    capture_output=True
-                )
+            subprocess.run(
+                install_script,
+                shell=True,
+                check=True,
+                capture_output=True
+            )
 
-            console.print("[green]Ollama installed successfully[/green]")
-            return True
+        console.print("[green]Ollama installed successfully[/green]")
+        return True
     except subprocess.CalledProcessError as e:
         console.print(f"[red]Installation failed: {e}[/red]")
         return False
 
 def check_model(model_name):
+    ollama_path = get_ollama_executable()
+    if not ollama_path:
+        return False
+
     try:
-        result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=5)
+        result = subprocess.run([ollama_path, 'list'], capture_output=True, text=True, timeout=5)
         return model_name in result.stdout
     except:
         return False
@@ -82,8 +131,12 @@ def check_model(model_name):
 
 def ensure_ollama_running():
     """try to ensure the ollama service is reachable."""
+    ollama_path = get_ollama_executable()
+    if not ollama_path:
+        return False
+
     try:
-        result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=5)
+        result = subprocess.run([ollama_path, 'list'], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             return True
     except Exception:
@@ -91,14 +144,19 @@ def ensure_ollama_running():
 
     # try to start the service if available
     try:
-        subprocess.Popen(['ollama', 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen([ollama_path, 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
-        result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=5)
+        result = subprocess.run([ollama_path, 'list'], capture_output=True, text=True, timeout=5)
         return result.returncode == 0
     except Exception:
         return False
 
 def download_model(model_name):
+    ollama_path = get_ollama_executable()
+    if not ollama_path:
+        console.print("[red]Ollama not found. Cannot download model.[/red]")
+        return False
+
     console.print(f"[info]Downloading {model_name}...[/info]")
     console.print("[yellow]This may take several minutes depending on your internet connection.[/yellow]")
 
@@ -111,7 +169,7 @@ def download_model(model_name):
             task = progress.add_task(f"Downloading {model_name}...", total=None)
 
             result = subprocess.run(
-                ['ollama', 'pull', model_name],
+                [ollama_path, 'pull', model_name],
                 check=True,
                 capture_output=True
             )
@@ -189,9 +247,13 @@ def create_settings(model_name: str, output_format: str, save_images: bool):
 
 def list_local_models():
     """Return (models, error_message) where models is a list of (name, size)."""
+    ollama_path = get_ollama_executable()
+    if not ollama_path:
+        return [], "Ollama not found"
+
     try:
         result = subprocess.run(
-            ['ollama', 'list'],
+            [ollama_path, 'list'],
             capture_output=True,
             text=True,
             timeout=5
