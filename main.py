@@ -340,6 +340,48 @@ def is_summary_row(row: dict) -> bool:
     return (has_product and has_rollup) or liquidity_block
 
 
+DESCRIPTION_NULL_RE = re.compile(r"\s*null$")
+
+
+def is_description_key(key: str) -> bool:
+    key = key.lower()
+    return "descrizione" in key or "description" in key
+
+
+def strip_trailing_null(value: str) -> str:
+    return DESCRIPTION_NULL_RE.sub("", value).rstrip()
+
+
+def is_value_present(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def row_has_error(row: dict) -> bool:
+    required_fields = ("data", "tipo", "descrizione")
+    for key in required_fields:
+        if not is_value_present(row.get(key)):
+            return True
+
+    balance_value = None
+    for key in row.keys():
+        if is_balance_key(key):
+            balance_value = row.get(key)
+            break
+    if not is_value_present(balance_value):
+        return True
+
+    in_entrata_present = is_value_present(row.get("in entrata"))
+    in_uscita_present = is_value_present(row.get("in uscita"))
+    if not (in_entrata_present or in_uscita_present):
+        return True
+
+    return False
+
+
 class OutputWriter:
     """Append rows to CSV/Excel/JSON; rewrites tabular files if schema expands."""
 
@@ -777,10 +819,14 @@ def extract_with_vision_llm(
                             continue
 
                     if isinstance(value, str):
-                        processed_row[target_key] = value.strip()
+                        cleaned_value = value.strip()
+                        if is_description_key(norm_key):
+                            cleaned_value = strip_trailing_null(cleaned_value)
+                        processed_row[target_key] = cleaned_value
                     else:
                         processed_row[target_key] = value if value is not None else None
                 if processed_row and not is_summary_row(processed_row):
+                    processed_row["error"] = "yes" if row_has_error(processed_row) else ""
                     processed_rows.append(processed_row)
 
             return PageData(rows=processed_rows)
