@@ -13,8 +13,10 @@ OUTPUT_EXTENSIONS = {
     "xlsx": "xlsx",
     "json": "json",
 }
+DEFAULT_TEMPERATURE = 0.0
 DEFAULT_MAX_RESPONSE_CHARS = 8000
 DEFAULT_MAX_TOKENS = 8000
+DEFAULT_NUM_CTX = 8192
 DEFAULT_VISION_EXTRACTION_PROMPT = (
     'Return JSON object {"rows": [...]} with all transaction table rows. Use table headers in the original language but '
     "normalize header keys to lowercase, keep their order, avoid duplicates that only differ by case, do not split data, "

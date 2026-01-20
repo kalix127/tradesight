@@ -10,7 +10,8 @@
   "parser": {
     "model": "ministral-3:8b",
     "ollama_url": "http://localhost:11434",
-    "temperature": 0.01
+    "temperature": 0,
+    "num_ctx": 8192
   },
   "output_format": "csv",
   "max_response_chars": 8000,

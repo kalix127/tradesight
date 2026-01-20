@@ -169,7 +169,8 @@ Tutta la config è in `settings.json`. Chiavi:
 | `image.scale` | float | `0.5` | Upscaling post-render per numeri piccoli. |
 | `parser.model` | string | `ministral-3:8b` | Nome modello in Ollama. |
 | `parser.ollama_url` | string | `http://localhost:11434` | Endpoint Ollama. |
-| `parser.temperature` | float | `0.01` | Randomness LLM (basso = più deterministico). |
+| `parser.temperature` | float | `0` | Randomness LLM (basso = più deterministico). |
+| `parser.num_ctx` | int | `8192` | Finestra di contesto passata a Ollama (`num_ctx`). |
 | `prompts/system_prompt.txt` | file | modificabile | Prompt principale; puoi adattarlo a layout/lingue nuove. |
 
 Puoi sovrascrivere modello/URL a runtime: `python3 main.py --model <nome> --ollama-url <url>`.

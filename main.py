@@ -32,8 +32,10 @@ from const import (
     DEFAULT_OUTPUT_FORMAT,
     OUTPUT_FORMAT_CHOICES,
     OUTPUT_EXTENSIONS,
+    DEFAULT_TEMPERATURE,
     DEFAULT_MAX_RESPONSE_CHARS,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_NUM_CTX,
 )
 
 current_model = None
@@ -533,17 +535,26 @@ def extract_with_vision_llm(
     image_base64: str,
     model: str = "ministral-3:8b",
     ollama_url: str = "http://localhost:11434",
-    temperature: float = 0.01,
+    temperature: float = DEFAULT_TEMPERATURE,
     max_retries: int = 2,
     request_timeout: float | None = 120,
     max_tokens: int | None = None,
+    num_ctx: int | None = None,
     debug_mode: bool = False,
     page_num: int | None = None,
     max_response_chars: int | None = None,
     heartbeat: Callable | None = None,
 ) -> PageData:
     """Extract financial data using vision LLM with retry logic"""
-    client = ollama.Client(host=ollama_url)
+    def extract_response_text(payload: object) -> str:
+        if isinstance(payload, dict):
+            return payload.get("response", "")
+        return getattr(payload, "response", "")
+
+    client_kwargs = {"host": ollama_url}
+    if request_timeout is not None:
+        client_kwargs["timeout"] = request_timeout
+    client = ollama.Client(**client_kwargs)
 
     for attempt in range(max_retries):
         try:
@@ -556,31 +567,24 @@ def extract_with_vision_llm(
             start_ts = time.time()
             deadline = start_ts + request_timeout if request_timeout else None
 
-            chat_kwargs = {
+            generate_kwargs = {
                 'model': model,
-                'messages': [{
-                    'role': 'user',
-                    'content': system_prompt,
-                    'images': [image_base64]
-                }],
+                'prompt': system_prompt,
+                'images': [image_base64],
                 'options': {
                     'temperature': temperature,
                     **({'num_predict': max_tokens} if max_tokens is not None else {}),
+                    **({'num_ctx': num_ctx} if num_ctx is not None else {}),
                 },
             }
 
             try:
-                response_iter = client.chat(**chat_kwargs, timeout=request_timeout, stream=True)
+                response_iter = client.generate(**generate_kwargs, stream=True)
                 streamed = True
             except TypeError:
-                # older ollama client may not support timeout kwarg; retry without it but keep streaming for guards
-                try:
-                    response_iter = client.chat(**chat_kwargs, stream=True)
-                    streamed = True
-                except TypeError:
-                    # streaming unsupported; fall back to non-stream (length guard will run after completion)
-                    response = client.chat(**chat_kwargs)
-                    content = response['message']['content']
+                # streaming unsupported; fall back to non-stream (length guard will run after completion)
+                response = client.generate(**generate_kwargs)
+                content = extract_response_text(response)
 
             if streamed:
                 truncated_due_to_length = False
@@ -590,7 +594,7 @@ def extract_with_vision_llm(
                         console.print(f"[warning]Vision call{page_label} exceeded {request_timeout}s; aborting and retrying page[/warning]")
                         raise TimeoutError("Vision call timed out")
 
-                    part = chunk.get("message", {}).get("content", "")
+                    part = extract_response_text(chunk)
                     if part:
                         content_parts.append(part)
                         content_length += len(part)
@@ -609,7 +613,7 @@ def extract_with_vision_llm(
                     content = content[:max_response_chars]
 
             duration = time.time() - start_ts
-            if duration > 45:
+            if duration > 60:
                 console.print(f"[warning]Vision call{page_label} took {duration:.1f}s; consider lowering DPI/scale or model load[/warning]")
             else:
                 console.print(f"[success]Vision call{page_label} completed in {duration:.1f}s[/success]")
@@ -872,13 +876,14 @@ def process_single_pdf(
     start_page: int | None = None,
     max_response_chars: int | None = None,
     max_tokens: int | None = None,
+    num_ctx: int | None = None,
 ) -> tuple[int, list[str]]:
     """Process a single PDF file using vision LLM and write incrementally to disk"""
     global current_model, ollama_url
 
     model = config.get('parser', {}).get('model', 'ministral-3:8b')
     ollama_url = config.get('parser', {}).get('ollama_url', 'http://localhost:11434')
-    temperature = config.get('parser', {}).get('temperature', 0.01)
+    temperature = config.get('parser', {}).get('temperature', DEFAULT_TEMPERATURE)
     image_cfg = config.get('image', {})
     dpi = image_cfg.get('dpi', 300)
     brightness = image_cfg.get('brightness', 1.5)
@@ -903,7 +908,7 @@ def process_single_pdf(
         return 0, []
 
     console.print(f"\n[brand]Processing: {pdf_name}.pdf[/brand]")
-    console.print(f"[info]Model: {model} | Temperature: {temperature} | Pages: {num_pages} | DPI: {dpi} | Format: {output_format}[/info]")
+    console.print(f"[info]Model: {model} | Temperature: {temperature} | Context: {num_ctx} | Pages: {num_pages} | DPI: {dpi} | Format: {output_format}[/info]")
 
     def format_eta(seconds: float | None) -> str:
         if seconds is None or seconds < 0:
@@ -996,6 +1001,7 @@ def process_single_pdf(
                 page_num=page_num,
                 max_response_chars=max_response_chars,
                 max_tokens=max_tokens,
+                num_ctx=num_ctx,
                 heartbeat=heartbeat,
             )
 
@@ -1073,6 +1079,11 @@ def main(
         DEFAULT_MAX_TOKENS,
         "max_tokens",
     )
+    num_ctx = sanitize_positive_limit(
+        config.get("parser", {}).get("num_ctx", DEFAULT_NUM_CTX),
+        DEFAULT_NUM_CTX,
+        "parser.num_ctx",
+    )
 
     input_dir = Path(config.get('input_dir', 'input'))
     if not input_dir.exists():
@@ -1105,6 +1116,7 @@ def main(
             start_page,
             max_response_chars,
             max_tokens,
+            num_ctx,
         )
 
         if rows_count > 0:

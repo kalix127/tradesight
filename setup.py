@@ -16,8 +16,10 @@ from const import (
     AUTHOR,
     DEFAULT_RECOMMENDED_MODELS,
     MODEL_MEMORY_HINTS,
+    DEFAULT_TEMPERATURE,
     DEFAULT_MAX_RESPONSE_CHARS,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_NUM_CTX,
     DEFAULT_OUTPUT_FORMAT,
     OUTPUT_FORMAT_CHOICES,
 )
@@ -207,7 +209,8 @@ def create_settings(model_name: str, output_format: str, save_images: bool):
             "parser": {
                 "model": model_name,
                 "ollama_url": "http://localhost:11434",
-                "temperature": 0.01,
+                "temperature": DEFAULT_TEMPERATURE,
+                "num_ctx": DEFAULT_NUM_CTX,
             },
             "max_response_chars": DEFAULT_MAX_RESPONSE_CHARS,
             "max_tokens": DEFAULT_MAX_TOKENS,
@@ -223,7 +226,8 @@ def create_settings(model_name: str, output_format: str, save_images: bool):
     settings["parser"] = {
         "model": model_name,
         "ollama_url": parser_settings.get("ollama_url", "http://localhost:11434"),
-        "temperature": parser_settings.get("temperature", 0.01)
+        "temperature": parser_settings.get("temperature", DEFAULT_TEMPERATURE),
+        "num_ctx": parser_settings.get("num_ctx", DEFAULT_NUM_CTX),
     }
 
     settings["image"] = {
