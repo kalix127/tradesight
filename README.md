@@ -165,7 +165,7 @@ All config lives in `settings.json`. Keys:
 | `image.dpi` | int | `300` | Render DPI (higher = sharper, slower). |
 | `image.brightness` | float | `1.5` | Image brightening factor. |
 | `image.contrast` | float | `1.5` | Image contrast factor. |
-| `image.scale` | float | `0.5` | Post-render upscaling for small numerals. |
+| `image.scale` | float | `0.5` | Scale factor (1.0 = no change; >1 upscale, <1 downscale); useful for small numerals. |
 | `parser.model` | string | `ministral-3:8b` | Ollama model name. |
 | `parser.ollama_url` | string | `http://localhost:11434` | Ollama endpoint. |
 | `parser.temperature` | float | `0` | LLM randomness (lower = more deterministic). |
@@ -183,6 +183,7 @@ You can override the model/URL at runtime: `python3 main.py --model <name> --oll
 
 - One file per PDF in the chosen format only (`.csv`, `.xlsx`, or `.json` array of rows).
 - Headers are normalized to lowercase but keep the PDF order; case-duplicate headers are collapsed.
+- Output includes an `error` column; `yes` indicates missing required fields (data, tipo, descrizione, saldo, and at least one of in entrata/in uscita).
 - Rows exclude summary/overview/liquidity/portfolio tables; only transaction tables remain.
 
 
