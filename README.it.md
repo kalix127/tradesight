@@ -171,6 +171,9 @@ Tutta la config è in `settings.json`. Chiavi:
 | `parser.ollama_url` | string | `http://localhost:11434` | Endpoint Ollama. |
 | `parser.temperature` | float | `0` | Randomness LLM (basso = più deterministico). |
 | `parser.num_ctx` | int | `8192` | Finestra di contesto passata a Ollama (`num_ctx`). |
+| `balance_tolerance` | float | `0.00` | Delta ammessa per la verifica del saldo; `0.00` = controllo rigido. |
+| `include_error_column` | bool | `true` | Include la colonna `error` (consigliata; segnala righe con campi richiesti mancanti). |
+| `include_balance_check_column` | bool | `false` | Include la colonna `balance_check` (mostra flag swapped/mismatch dalla verifica saldo; abilita via `settings.json`). |
 | `prompts/system_prompt.txt` | file | modificabile | Prompt principale; puoi adattarlo a layout/lingue nuove. |
 
 Puoi sovrascrivere modello/URL a runtime: `python3 main.py --model <nome> --ollama-url <url>`.
@@ -178,13 +181,14 @@ Puoi sovrascrivere modello/URL a runtime: `python3 main.py --model <nome> --olla
 ## 🤖 Modelli consigliati
 
 - **Consigliato:** `ministral-3:8b` — massima accuratezza per PDF Trade Republic; ~6GB vRAM (o molta RAM con swap, più lento). Usa questo per evitare output disordinati.
-- **Fallback leggero:** `qwen2.5vl:3b` — più leggero (~4.2GB vRAM) ma può perdere importi/campi; qualità ridotta.
 
 ## 📤 Output
 
 - Un file per PDF solo nel formato scelto (`.csv`, `.xlsx` o `.json` con un array di righe).
 - Header normalizzati in minuscolo ma nell’ordine del PDF; header duplicati solo per maiuscole/minuscole sono unificati.
-- L’output include una colonna `error`; `yes` indica campi obbligatori mancanti (data, tipo, descrizione, saldo e almeno uno tra in entrata/in uscita).
+- Le colonne importo (`in entrata`, `in uscita`, `saldo`) sono stringhe numeriche senza simboli di valuta.
+- Se `include_error_column` è attivo (consigliato), `error = yes` indica campi obbligatori mancanti (data, tipo, descrizione, saldo e almeno uno tra in entrata/in uscita).
+- Se `include_balance_check_column` è attivo, `balance_check` mostra `swapped`, `swapped_in_out` o `mismatch` quando interviene la verifica saldo.
 - Le righe escludono overview/riepiloghi/liquidità/portfolio; rimangono solo le tabelle transazioni.
 
 

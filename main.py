@@ -16,6 +16,7 @@ import base64
 from io import BytesIO
 import gc
 from PIL import Image, ImageEnhance
+from decimal import Decimal, InvalidOperation
 from const import (
     PROJECT_NAME,
     AUTHOR,
@@ -36,10 +37,15 @@ from const import (
     DEFAULT_MAX_RESPONSE_CHARS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_NUM_CTX,
+    DEFAULT_BALANCE_TOLERANCE,
+    DEFAULT_INCLUDE_ERROR_COLUMN,
+    DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN,
 )
 
 current_model = None
 ollama_url = None
+INCLUDE_ERROR_COLUMN = DEFAULT_INCLUDE_ERROR_COLUMN
+INCLUDE_BALANCE_CHECK_COLUMN = DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN
 
 def cleanup_and_exit(signum=None, frame=None):
     """cleanup function to unload ollama model and exit"""
@@ -358,6 +364,451 @@ def is_value_present(value: object) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
     return True
+
+
+MONEY_CLEAN_RE = re.compile(r"[^\d,.\-]")
+BALANCE_TOLERANCE = Decimal(DEFAULT_BALANCE_TOLERANCE)
+
+
+def parse_money(value: object) -> Optional[Decimal]:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            return Decimal(str(value))
+        except InvalidOperation:
+            return None
+    if not isinstance(value, str):
+        return None
+
+    raw = value.strip()
+    if not raw:
+        return None
+
+    is_negative = raw.startswith("(") and raw.endswith(")")
+    if is_negative:
+        raw = raw[1:-1].strip()
+
+    cleaned = MONEY_CLEAN_RE.sub("", raw)
+    if not cleaned or cleaned in ("-", ".", ","):
+        return None
+
+    if cleaned.count("-") > 1:
+        cleaned = cleaned.replace("-", "")
+    elif "-" in cleaned and not cleaned.startswith("-"):
+        cleaned = cleaned.replace("-", "")
+
+    if "," in cleaned and "." in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "")
+            cleaned = cleaned.replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        parts = cleaned.split(",")
+        if len(parts[-1]) in (1, 2):
+            cleaned = cleaned.replace(".", "")
+            cleaned = cleaned.replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "." in cleaned and cleaned.count(".") > 1:
+        last_dot = cleaned.rfind(".")
+        cleaned = cleaned[:last_dot].replace(".", "") + cleaned[last_dot:]
+
+    try:
+        amount = Decimal(cleaned)
+    except InvalidOperation:
+        return None
+
+    if is_negative and amount > 0:
+        amount = -amount
+    return amount
+
+
+def balances_close(a: Decimal | None, b: Decimal | None) -> bool:
+    if a is None or b is None:
+        return False
+    return abs(a - b) <= BALANCE_TOLERANCE
+
+
+def parse_balance_tolerance(value: object) -> Decimal:
+    try:
+        if isinstance(value, Decimal):
+            amount = value
+        elif isinstance(value, str):
+            amount = Decimal(value.strip())
+        else:
+            amount = Decimal(str(value))
+        if amount < 0:
+            raise InvalidOperation("negative tolerance")
+        return amount
+    except Exception:
+        console.print(
+            f"[warning]balance_tolerance must be >= 0; using default {DEFAULT_BALANCE_TOLERANCE}[/warning]"
+        )
+        return Decimal(DEFAULT_BALANCE_TOLERANCE)
+
+
+def parse_bool_config(value: object, default: bool, label: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off"}:
+            return False
+    if value is None:
+        return default
+    console.print(f"[warning]{label} must be a boolean; using default {default}[/warning]")
+    return default
+
+
+def infer_balance_direction(rows: List[dict], balance_key: str | None, debug_mode: bool = False) -> Decimal | None:
+    if not balance_key:
+        return None
+
+    best_sign = None
+    best_ratio = 0.0
+    best_matches = 0
+    best_checks = 0
+
+    for sign in (Decimal("1"), Decimal("-1")):
+        matches = 0
+        checks = 0
+        prev_balance = None
+
+        for row in rows:
+            balance = parse_money(row.get(balance_key))
+            inflow = parse_money(row.get("in entrata"))
+            outflow = parse_money(row.get("in uscita"))
+
+            if balance is None:
+                continue
+            if prev_balance is None:
+                prev_balance = balance
+                continue
+            if inflow is None and outflow is None:
+                prev_balance = balance
+                continue
+
+            checks += 1
+            in_val = inflow or Decimal(0)
+            out_val = outflow or Decimal(0)
+            expected_keep = prev_balance + sign * (in_val - out_val)
+            expected_swap = prev_balance + sign * (out_val - in_val)
+
+            if balances_close(balance, expected_keep) or balances_close(balance, expected_swap):
+                matches += 1
+
+            prev_balance = balance
+
+        ratio = matches / checks if checks else 0
+        if ratio > best_ratio or (ratio == best_ratio and matches > best_matches):
+            best_ratio = ratio
+            best_matches = matches
+            best_checks = checks
+            best_sign = sign
+
+    if best_sign is None or best_checks < 2 or best_ratio < 0.6:
+        if debug_mode:
+            console.print(
+                f"[debug]Balance direction unclear (checks={best_checks}, matches={best_matches}, ratio={best_ratio:.2f}); skipping swap check[/debug]"
+            )
+        return None
+
+    if debug_mode:
+        direction = "forward" if best_sign > 0 else "reverse"
+        console.print(
+            f"[debug]Inferred row order: {direction} (checks={best_checks}, matches={best_matches}, ratio={best_ratio:.2f})[/debug]"
+        )
+    return best_sign
+
+
+def format_money_value(value: object) -> object:
+    amount = parse_money(value)
+    if amount is None:
+        return value
+    return format(amount, "f")
+
+
+def normalize_money_fields(rows: List[dict], balance_key: str | None) -> List[dict]:
+    if not rows or not balance_key:
+        return rows
+    money_keys = {"in entrata", "in uscita", balance_key}
+    for row in rows:
+        for key in money_keys:
+            if key in row and is_value_present(row.get(key)):
+                row[key] = format_money_value(row.get(key))
+    return rows
+
+
+def find_balance_key(rows: List[dict]) -> str | None:
+    for row in rows:
+        for key in row.keys():
+            if is_balance_key(key):
+                return key
+    return None
+
+
+def finalize_rows(
+    rows: List[dict],
+    balance_key: str | None,
+    debug_mode: bool = False,
+) -> tuple[List[dict], int]:
+    if not rows:
+        return rows, 0
+
+    rows = apply_running_balance_corrections(rows, balance_key, debug_mode=debug_mode)
+    rows = normalize_money_fields(rows, balance_key)
+
+    if not INCLUDE_BALANCE_CHECK_COLUMN:
+        for row in rows:
+            row.pop("balance_check", None)
+
+    error_count = 0
+    for row in rows:
+        has_error = row_has_error(row)
+        if has_error:
+            error_count += 1
+        if INCLUDE_ERROR_COLUMN:
+            row["error"] = "yes" if has_error else ""
+        else:
+            row.pop("error", None)
+
+    return rows, error_count
+
+
+def apply_running_balance_corrections(
+    rows: List[dict],
+    balance_key: str | None,
+    debug_mode: bool = False,
+) -> List[dict]:
+    if not balance_key:
+        return rows
+
+    swapped = 0
+    inout_swapped = 0
+    mismatched = 0
+    row_signs: list[Decimal | None] = [None] * len(rows)
+    global_sign = infer_balance_direction(rows, balance_key, debug_mode=debug_mode)
+
+    def build_state(row: dict) -> dict:
+        inflow = parse_money(row.get("in entrata"))
+        outflow = parse_money(row.get("in uscita"))
+        balance = parse_money(row.get(balance_key)) if balance_key else None
+        swap_valid = balance is not None and outflow is not None
+        return {
+            "in_val": inflow,
+            "out_keep": outflow,
+            "bal_keep": balance,
+            "out_swap": balance if swap_valid else None,
+            "bal_swap": outflow if swap_valid else None,
+        }
+
+    def transition_score(
+        prev_state: dict,
+        curr_state: dict,
+        prev_choice: int,
+        curr_choice: int,
+        sign: Decimal,
+    ) -> int:
+        prev_balance = prev_state["bal_keep"] if prev_choice == 0 else prev_state["bal_swap"]
+        curr_balance = curr_state["bal_keep"] if curr_choice == 0 else curr_state["bal_swap"]
+        if prev_balance is None or curr_balance is None:
+            return 0
+        out_val = curr_state["out_keep"] if curr_choice == 0 else curr_state["out_swap"]
+        inflow = curr_state["in_val"]
+        if inflow is None and out_val is None:
+            return 0
+        in_val = inflow or Decimal(0)
+        out_val = out_val or Decimal(0)
+        expected = prev_balance + sign * (in_val - out_val)
+        return 1 if balances_close(curr_balance, expected) else -1
+
+    def solve_block(states: List[dict], sign: Decimal) -> tuple[list[int], int, int]:
+        n = len(states)
+        neg_inf = -10**9
+        dp_score = [[neg_inf, neg_inf] for _ in range(n)]
+        dp_swaps = [[10**9, 10**9] for _ in range(n)]
+        dp_prev = [[None, None] for _ in range(n)]
+
+        for i in range(n):
+            for choice in (0, 1):
+                balance = states[i]["bal_keep"] if choice == 0 else states[i]["bal_swap"]
+                out_val = states[i]["out_keep"] if choice == 0 else states[i]["out_swap"]
+                if balance is None:
+                    continue
+                if choice == 1 and out_val is None:
+                    continue
+                if i == 0:
+                    dp_score[i][choice] = 0
+                    dp_swaps[i][choice] = 1 if choice == 1 else 0
+                    continue
+                for prev_choice in (0, 1):
+                    if dp_score[i - 1][prev_choice] == neg_inf:
+                        continue
+                    score = dp_score[i - 1][prev_choice] + transition_score(
+                        states[i - 1], states[i], prev_choice, choice, sign
+                    )
+                    swaps = dp_swaps[i - 1][prev_choice] + (1 if choice == 1 else 0)
+                    if score > dp_score[i][choice] or (
+                        score == dp_score[i][choice] and swaps < dp_swaps[i][choice]
+                    ):
+                        dp_score[i][choice] = score
+                        dp_swaps[i][choice] = swaps
+                        dp_prev[i][choice] = prev_choice
+
+        last = 0
+        if dp_score[-1][1] > dp_score[-1][0] or (
+            dp_score[-1][1] == dp_score[-1][0] and dp_swaps[-1][1] < dp_swaps[-1][0]
+        ):
+            last = 1
+
+        choices = [0] * n
+        curr = last if dp_score[-1][last] != neg_inf else 0
+        for i in range(n - 1, -1, -1):
+            choices[i] = curr
+            prev_choice = dp_prev[i][curr]
+            curr = prev_choice if prev_choice is not None else 0
+        return choices, dp_score[-1][last], dp_swaps[-1][last]
+
+    block_indices: list[int] = []
+    for idx, row in enumerate(rows):
+        balance = parse_money(row.get(balance_key))
+        if balance is None:
+            if block_indices:
+                states = [build_state(rows[i]) for i in block_indices]
+                best = None
+                for candidate_sign in (Decimal("1"), Decimal("-1")):
+                    choices, score, swaps = solve_block(states, candidate_sign)
+                    if best is None or score > best["score"] or (
+                        score == best["score"] and swaps < best["swaps"]
+                    ):
+                        best = {"choices": choices, "score": score, "swaps": swaps, "sign": candidate_sign}
+                if best and best["score"] > 0:
+                    for i, choice in zip(block_indices, best["choices"]):
+                        row_signs[i] = best["sign"]
+                        if choice == 1:
+                            rows[i]["in uscita"], rows[i][balance_key] = rows[i].get(balance_key), rows[i].get("in uscita")
+                            rows[i]["balance_check"] = "swapped"
+                            swapped += 1
+                        elif "balance_check" not in rows[i]:
+                            rows[i]["balance_check"] = ""
+                else:
+                    if debug_mode:
+                        console.print(
+                            f"[debug]Skipping balance swap for block ({len(block_indices)} rows) due to weak score[/debug]"
+                        )
+                    for i in block_indices:
+                        row_signs[i] = global_sign
+                        if "balance_check" not in rows[i]:
+                            rows[i]["balance_check"] = ""
+                block_indices = []
+            continue
+        block_indices.append(idx)
+
+    if block_indices:
+        states = [build_state(rows[i]) for i in block_indices]
+        best = None
+        for candidate_sign in (Decimal("1"), Decimal("-1")):
+            choices, score, swaps = solve_block(states, candidate_sign)
+            if best is None or score > best["score"] or (
+                score == best["score"] and swaps < best["swaps"]
+            ):
+                best = {"choices": choices, "score": score, "swaps": swaps, "sign": candidate_sign}
+        if best and best["score"] > 0:
+            for i, choice in zip(block_indices, best["choices"]):
+                row_signs[i] = best["sign"]
+                if choice == 1:
+                    rows[i]["in uscita"], rows[i][balance_key] = rows[i].get(balance_key), rows[i].get("in uscita")
+                    rows[i]["balance_check"] = "swapped"
+                    swapped += 1
+                elif "balance_check" not in rows[i]:
+                    rows[i]["balance_check"] = ""
+        else:
+            if debug_mode:
+                console.print(
+                    f"[debug]Skipping balance swap for block ({len(block_indices)} rows) due to weak score[/debug]"
+                )
+            for i in block_indices:
+                row_signs[i] = global_sign
+                if "balance_check" not in rows[i]:
+                    rows[i]["balance_check"] = ""
+
+    prev_balance = None
+    prev_sign = None
+    for idx, row in enumerate(rows):
+        balance = parse_money(row.get(balance_key)) if balance_key else None
+        inflow = parse_money(row.get("in entrata"))
+        outflow = parse_money(row.get("in uscita"))
+        sign = row_signs[idx] if balance_key else None
+
+        if balance is None or sign is None:
+            prev_balance = None
+            prev_sign = None
+            continue
+        if prev_sign is not None and sign != prev_sign:
+            prev_balance = None
+        if prev_balance is None:
+            prev_balance = balance
+            prev_sign = sign
+            continue
+        if inflow is None and outflow is None:
+            prev_balance = balance
+            prev_sign = sign
+            continue
+
+        expected_keep = prev_balance + sign * ((inflow or Decimal(0)) - (outflow or Decimal(0)))
+        expected_swap = prev_balance + sign * ((outflow or Decimal(0)) - (inflow or Decimal(0)))
+
+        if not balances_close(balance, expected_keep) and balances_close(balance, expected_swap):
+            row["in entrata"], row["in uscita"] = row.get("in uscita"), row.get("in entrata")
+            row["balance_check"] = "swapped_in_out"
+            inout_swapped += 1
+
+        prev_balance = balance
+        prev_sign = sign
+
+    prev_balance = None
+    prev_sign = None
+    for idx, row in enumerate(rows):
+        balance = parse_money(row.get(balance_key)) if balance_key else None
+        inflow = parse_money(row.get("in entrata"))
+        outflow = parse_money(row.get("in uscita"))
+        sign = row_signs[idx] if balance_key else None
+
+        if balance is None or sign is None:
+            prev_balance = None
+            prev_sign = None
+            continue
+        if prev_sign is not None and sign != prev_sign:
+            prev_balance = None
+        if prev_balance is None:
+            prev_balance = balance
+            prev_sign = sign
+            continue
+        if inflow is None and outflow is None:
+            prev_balance = balance
+            prev_sign = sign
+            continue
+
+        expected = prev_balance + sign * ((inflow or Decimal(0)) - (outflow or Decimal(0)))
+        if not balances_close(balance, expected):
+            row["balance_check"] = "mismatch"
+            mismatched += 1
+        prev_balance = balance
+        prev_sign = sign
+
+    if debug_mode:
+        console.print(
+            f"[debug]Running balance check: swapped={swapped}, in_out_swapped={inout_swapped}, mismatch={mismatched}[/debug]"
+        )
+    return rows
 
 
 def row_has_error(row: dict) -> bool:
@@ -826,7 +1277,6 @@ def extract_with_vision_llm(
                     else:
                         processed_row[target_key] = value if value is not None else None
                 if processed_row and not is_summary_row(processed_row):
-                    processed_row["error"] = "yes" if row_has_error(processed_row) else ""
                     processed_rows.append(processed_row)
 
             return PageData(rows=processed_rows)
@@ -923,7 +1373,7 @@ def process_single_pdf(
     max_response_chars: int | None = None,
     max_tokens: int | None = None,
     num_ctx: int | None = None,
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[str], int]:
     """Process a single PDF file using vision LLM and write incrementally to disk"""
     global current_model, ollama_url
 
@@ -951,7 +1401,7 @@ def process_single_pdf(
     num_pages = get_pdf_page_count(pdf_path)
     if num_pages == 0:
         console.print(f"[error]Could not read PDF: {pdf_path}[/error]")
-        return 0, []
+        return 0, [], 0
 
     console.print(f"\n[brand]Processing: {pdf_name}.pdf[/brand]")
     console.print(f"[info]Model: {model} | Temperature: {temperature} | Context: {num_ctx} | Pages: {num_pages} | DPI: {dpi} | Format: {output_format}[/info]")
@@ -986,8 +1436,10 @@ def process_single_pdf(
 
         start_time = time.time()
         total_rows = 0
+        total_error_rows = 0
         page_durations: list[float] = []
         last_eta_sec: list[float | None] = [None]
+        carry_rows: list[dict] = []
 
         start_idx = max((start_page or 1) - 1, 0)
 
@@ -1051,9 +1503,23 @@ def process_single_pdf(
                 heartbeat=heartbeat,
             )
 
-            writer.write_rows(page_data.rows, debug_mode=debug_mode)
+            combined_rows = carry_rows + page_data.rows
+            if combined_rows:
+                balance_key = find_balance_key(combined_rows)
+                finalized_rows, _ = finalize_rows(combined_rows, balance_key, debug_mode=debug_mode)
+                if page_num < num_pages - 1:
+                    if len(finalized_rows) == 1:
+                        carry_rows = finalized_rows
+                        continue
+                    write_rows = finalized_rows[:-1]
+                    carry_rows = finalized_rows[-1:]
+                else:
+                    write_rows = finalized_rows
+                    carry_rows = []
 
-            total_rows += len(page_data.rows)
+                writer.write_rows(write_rows, debug_mode=debug_mode)
+                total_rows += len(write_rows)
+                total_error_rows += sum(1 for row in write_rows if row_has_error(row))
 
             pages_done = page_num + 1
             elapsed_sec = time.time() - start_time
@@ -1077,7 +1543,7 @@ def process_single_pdf(
             del page_data
             gc.collect()
 
-    return total_rows, writer.columns
+    return total_rows, writer.columns, total_error_rows
 
 def main(
     model_override: str | None = None,
@@ -1086,7 +1552,7 @@ def main(
     start_page: int | None = None,
 ):
     """Main execution function"""
-    global current_model, ollama_url
+    global current_model, ollama_url, BALANCE_TOLERANCE, INCLUDE_ERROR_COLUMN, INCLUDE_BALANCE_CHECK_COLUMN
 
     if debug_mode:
         console.print("[warning]Debug mode enabled - showing raw responses[/warning]")
@@ -1130,6 +1596,17 @@ def main(
         DEFAULT_NUM_CTX,
         "parser.num_ctx",
     )
+    BALANCE_TOLERANCE = parse_balance_tolerance(config.get("balance_tolerance", DEFAULT_BALANCE_TOLERANCE))
+    INCLUDE_ERROR_COLUMN = parse_bool_config(
+        config.get("include_error_column"),
+        DEFAULT_INCLUDE_ERROR_COLUMN,
+        "include_error_column",
+    )
+    INCLUDE_BALANCE_CHECK_COLUMN = parse_bool_config(
+        config.get("include_balance_check_column"),
+        DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN,
+        "include_balance_check_column",
+    )
 
     input_dir = Path(config.get('input_dir', 'input'))
     if not input_dir.exists():
@@ -1145,6 +1622,7 @@ def main(
     console.print(f"[info]Found {len(pdf_files)} PDF file(s)[/info]")
 
     total_rows = 0
+    total_error_rows = 0
 
     for pdf_path in sorted(pdf_files):
         pdf_name = pdf_path.stem
@@ -1153,7 +1631,7 @@ def main(
         extension = OUTPUT_EXTENSIONS.get(output_format, "csv")
         rows_path = output_dir / f'{pdf_name}.{extension}'
 
-        rows_count, columns = process_single_pdf(
+        rows_count, columns, error_rows = process_single_pdf(
             pdf_path,
             config,
             output_dir,
@@ -1170,11 +1648,13 @@ def main(
             if debug_mode:
                 console.print(f"[debug]Columns found: {columns}[/debug]")
             total_rows += rows_count
+            total_error_rows += error_rows
         else:
             console.print(f"[warning]No rows found in {pdf_name}.pdf[/warning]")
 
     console.print(f"\n[brand]Processing Complete![/brand]")
     console.print(f"[metric]Total Rows: {total_rows}[/metric]")
+    console.print(f"[metric]Rows With Errors: {total_error_rows}[/metric]")
 
     if current_model and ollama_url:
         try:

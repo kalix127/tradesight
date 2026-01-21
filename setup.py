@@ -22,6 +22,9 @@ from const import (
     DEFAULT_NUM_CTX,
     DEFAULT_OUTPUT_FORMAT,
     OUTPUT_FORMAT_CHOICES,
+    DEFAULT_BALANCE_TOLERANCE,
+    DEFAULT_INCLUDE_ERROR_COLUMN,
+    DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN,
 )
 
 console = Console()
@@ -182,7 +185,13 @@ def download_model(model_name):
         console.print(f"[red]Download failed: {e}[/red]")
         return False
 
-def create_settings(model_name: str, output_format: str, save_images: bool):
+def create_settings(
+    model_name: str,
+    output_format: str,
+    save_images: bool,
+    include_error_column: bool,
+    include_balance_check_column: bool,
+):
     """Create or update settings.json"""
     settings_path = Path("settings.json")
 
@@ -214,6 +223,9 @@ def create_settings(model_name: str, output_format: str, save_images: bool):
             },
             "max_response_chars": DEFAULT_MAX_RESPONSE_CHARS,
             "max_tokens": DEFAULT_MAX_TOKENS,
+            "balance_tolerance": DEFAULT_BALANCE_TOLERANCE,
+            "include_error_column": DEFAULT_INCLUDE_ERROR_COLUMN,
+            "include_balance_check_column": DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN,
             "save_page_images": True,
         }
 
@@ -238,6 +250,15 @@ def create_settings(model_name: str, output_format: str, save_images: bool):
     }
     settings["max_response_chars"] = settings.get("max_response_chars", DEFAULT_MAX_RESPONSE_CHARS)
     settings["max_tokens"] = settings.get("max_tokens", DEFAULT_MAX_TOKENS)
+    settings["balance_tolerance"] = settings.get("balance_tolerance", DEFAULT_BALANCE_TOLERANCE)
+    settings["include_error_column"] = bool(
+        include_error_column if include_error_column is not None else settings.get("include_error_column", DEFAULT_INCLUDE_ERROR_COLUMN)
+    )
+    settings["include_balance_check_column"] = bool(
+        include_balance_check_column
+        if include_balance_check_column is not None
+        else settings.get("include_balance_check_column", DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN)
+    )
     settings["save_page_images"] = bool(save_images if save_images is not None else settings.get("save_page_images", True))
 
     # remove ocr section if exists
@@ -465,19 +486,36 @@ def main():
 
     console.print("\n[bold]Debugging Aids[/bold]")
     save_images_default = True
+    include_error_default = DEFAULT_INCLUDE_ERROR_COLUMN
+    include_balance_check_default = DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN
     if Path("settings.json").exists():
         try:
             with open("settings.json", "r", encoding="utf-8") as f:
                 cfg = json.load(f)
                 save_images_default = bool(cfg.get("save_page_images", True))
+                include_error_default = bool(cfg.get("include_error_column", DEFAULT_INCLUDE_ERROR_COLUMN))
+                include_balance_check_default = bool(
+                    cfg.get("include_balance_check_column", DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN)
+                )
         except Exception:
             pass
     save_images = Confirm.ask(
         "Save page images sent to the vision model? (stored under output/<pdf>_images)",
         default=save_images_default
     )
+    include_error_column = Confirm.ask(
+        "Include 'error' column? (recommended; flags rows missing required fields)",
+        default=include_error_default,
+    )
+    include_balance_check_column = include_balance_check_default
 
-    create_settings(model, output_format, save_images)
+    create_settings(
+        model,
+        output_format,
+        save_images,
+        include_error_column,
+        include_balance_check_column,
+    )
 
     console.print("\n[bold]Python Dependencies[/bold]")
     if not Path("requirements.txt").exists():

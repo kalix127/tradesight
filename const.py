@@ -17,6 +17,9 @@ DEFAULT_TEMPERATURE = 0.0
 DEFAULT_MAX_RESPONSE_CHARS = 8000
 DEFAULT_MAX_TOKENS = 8000
 DEFAULT_NUM_CTX = 8192
+DEFAULT_BALANCE_TOLERANCE = "0.00"
+DEFAULT_INCLUDE_ERROR_COLUMN = True
+DEFAULT_INCLUDE_BALANCE_CHECK_COLUMN = False
 DEFAULT_VISION_EXTRACTION_PROMPT = (
     'Return JSON object {"rows": [...]} with all transaction table rows. Use table headers in the original language but '
     "normalize header keys to lowercase, keep their order, avoid duplicates that only differ by case, do not split data, "

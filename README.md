@@ -170,20 +170,24 @@ All config lives in `settings.json`. Keys:
 | `parser.ollama_url` | string | `http://localhost:11434` | Ollama endpoint. |
 | `parser.temperature` | float | `0` | LLM randomness (lower = more deterministic). |
 | `parser.num_ctx` | int | `8192` | Context window passed to Ollama (`num_ctx`). |
+| `balance_tolerance` | float | `0.00` | Allowed running-balance delta when validating swaps; `0.00` = strict. |
+| `include_error_column` | bool | `true` | Include the `error` column (recommended; flags rows missing required fields). |
+| `include_balance_check_column` | bool | `false` | Include the `balance_check` column (shows swapped/mismatch flags from balance validation; edit `settings.json` to enable). |
 | `prompts/system_prompt.txt` | file | editable | User-facing prompt; can tweak wording for new layouts/languages. |
 
 You can override the model/URL at runtime: `python3 main.py --model <name> --ollama-url <url>`.
 
 ## 🤖 Recommended Models
 
-- **Strongly recommended:** `ministral-3:8b` — highest accuracy for Trade Republic PDFs; expect ~6GB vRAM (or ample system RAM with swap, slower). Use this to avoid messy/incorrect outputs.
-- **Lower-accuracy fallback:** `qwen2.5vl:3b` — lighter (~4.2GB vRAM) but may miss small amounts/fields; expect reduced quality.
+- **Recommended:** `ministral-3:8b` — highest accuracy for Trade Republic PDFs; expect ~6GB vRAM (or ample system RAM with swap, slower). Use this to avoid messy/incorrect outputs.
 
 ## 📤 Output
 
 - One file per PDF in the chosen format only (`.csv`, `.xlsx`, or `.json` array of rows).
 - Headers are normalized to lowercase but keep the PDF order; case-duplicate headers are collapsed.
-- Output includes an `error` column; `yes` indicates missing required fields (data, tipo, descrizione, saldo, and at least one of in entrata/in uscita).
+- Amount columns (`in entrata`, `in uscita`, `saldo`) are numeric strings without currency symbols.
+- If `include_error_column` is enabled (recommended), `error = yes` marks rows missing required fields (data, tipo, descrizione, saldo, and at least one of in entrata/in uscita).
+- If `include_balance_check_column` is enabled, `balance_check` shows `swapped`, `swapped_in_out`, or `mismatch` when balance validation intervened.
 - Rows exclude summary/overview/liquidity/portfolio tables; only transaction tables remain.
 
 
