@@ -38,11 +38,17 @@
 
 ## 💻 Platform Support
 
-| OS | Status | Notes |
+<div align="center">
+  <img alt="Linux supported" src="https://img.shields.io/badge/Linux-Tested%20%26%20Supported-2ea043?logo=linux&logoColor=white" />
+  <img alt="Windows supported" src="https://img.shields.io/badge/Windows-Tested%20%26%20Supported-0a66c2?logo=windows&logoColor=white" />
+  <img alt="macOS supported" src="https://img.shields.io/badge/macOS-Tested%20%26%20Supported-1f883d?logo=apple&logoColor=white" />
+</div>
+
+| Platform | Status | Notes |
 | --- | --- | --- |
-| Linux | Supported / tested | Primary development platform |
-| Windows | Supported / tested | - |
-| macOS (Apple Silicon) | Not yet tested | Planned |
+| Linux | ✅ Supported / tested | Primary development platform |
+| Windows | ✅ Supported / tested | Verified end-to-end |
+| macOS (Apple Silicon) | ✅ Supported / tested | Verified end-to-end |
 
 ## ⚠️ Disclaimers
 

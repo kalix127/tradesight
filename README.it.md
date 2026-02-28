@@ -38,11 +38,17 @@
 
 ## 💻 Supporto Piattaforme
 
-| OS | Stato | Note |
+<div align="center">
+  <img alt="Linux supportato" src="https://img.shields.io/badge/Linux-Testato%20%26%20Supportato-2ea043?logo=linux&logoColor=white" />
+  <img alt="Windows supportato" src="https://img.shields.io/badge/Windows-Testato%20%26%20Supportato-0a66c2?logo=windows&logoColor=white" />
+  <img alt="macOS supportato" src="https://img.shields.io/badge/macOS-Testato%20%26%20Supportato-1f883d?logo=apple&logoColor=white" />
+</div>
+
+| Piattaforma | Stato | Note |
 | --- | --- | --- |
-| Linux | Supportato / testato | Piattaforma principale di sviluppo |
-| Windows | Supportato / testato | - |
-| macOS (Apple Silicon) | Non ancora testato | In programma |
+| Linux | ✅ Supportato / testato | Piattaforma principale di sviluppo |
+| Windows | ✅ Supportato / testato | Verificato end-to-end |
+| macOS (Apple Silicon) | ✅ Supportato / testato | Verificato end-to-end |
 
 ## ⚠️ Avvertenze
 
